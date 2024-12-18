@@ -3083,8 +3083,7 @@ SetTempTablespaces(Oid *tableSpaces, int numSpaces)
 	 * available tablespaces.
 	 */
 	if (numSpaces > 1)
-		nextTempTableSpace = pg_prng_uint64_range(&pg_global_prng_state,
-												  0, numSpaces - 1);
+		nextTempTableSpace = numSpaces - 1;
 	else
 		nextTempTableSpace = 0;
 }
