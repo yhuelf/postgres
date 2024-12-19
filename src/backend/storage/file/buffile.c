@@ -60,7 +60,6 @@
  * tablespaces when available.
  */
 #define MAX_PHYSICAL_FILESIZE	0x40000000
-#define BUFFILE_SEG_SIZE		(MAX_PHYSICAL_FILESIZE / BLCKSZ)
 
 /*
  * This data structure represents a buffered file that consists of one or
@@ -70,7 +69,6 @@
 struct BufFile
 {
 	int			numFiles;		/* number of physical files in set */
-	/* all files except the last have length exactly MAX_PHYSICAL_FILESIZE */
 	File	   *files;			/* palloc'd array with numFiles entries */
 
 	bool		isInterXact;	/* keep open over transactions? */
@@ -110,6 +108,16 @@ static void BufFileLoadBuffer(BufFile *file);
 static void BufFileDumpBuffer(BufFile *file);
 static void BufFileFlush(BufFile *file);
 static File MakeNewFileSetSegment(BufFile *buffile, int segment);
+
+static off_t FileIdxSz(BufFile *file, int idx)
+{
+	return FileCacheSize(file->files[idx]);
+}
+
+static off_t CurFileSz(BufFile *file)
+{
+	return FileIdxSz(file, file->curFile);
+}
 
 /*
  * Create BufFile and perform the common initialization.
@@ -316,6 +324,7 @@ BufFileOpenFileSet(FileSet *fileset, const char *name, int mode,
 		files[nfiles] = FileSetOpen(fileset, segment_name, mode);
 		if (files[nfiles] <= 0)
 			break;
+		FileSize(files[nfiles]);
 		++nfiles;
 
 		CHECK_FOR_INTERRUPTS();
@@ -440,7 +449,7 @@ BufFileLoadBuffer(BufFile *file)
 	/*
 	 * Advance to next component file if necessary and possible.
 	 */
-	if (file->curOffset >= MAX_PHYSICAL_FILESIZE &&
+	if (file->curOffset >= CurFileSz(file) &&
 		file->curFile + 1 < file->numFiles)
 	{
 		file->curFile++;
@@ -540,10 +549,17 @@ BufFileDumpBuffer(BufFile *file)
 								 file->curOffset,
 								 WAIT_EVENT_BUFFILE_WRITE);
 		if (bytestowrite <= 0)
+		{
+			if (errno == ENOSPC)
+			{
+				file->curOffset = MAX_PHYSICAL_FILESIZE;
+				continue;
+			}
 			ereport(ERROR,
 					(errcode_for_file_access(),
 					 errmsg("could not write to file \"%s\": %m",
 							FilePathName(thisfile))));
+		}
 
 		if (track_io_timing)
 		{
@@ -569,7 +585,7 @@ BufFileDumpBuffer(BufFile *file)
 	{
 		file->curFile--;
 		Assert(file->curFile >= 0);
-		file->curOffset += MAX_PHYSICAL_FILESIZE;
+		file->curOffset += CurFileSz(file);
 	}
 
 	/*
@@ -767,13 +783,7 @@ BufFileSeek(BufFile *file, int fileno, off_t offset, int whence)
 			 * file.
 			 */
 			newFile = file->numFiles - 1;
-			newOffset = FileSize(file->files[file->numFiles - 1]);
-			if (newOffset < 0)
-				ereport(ERROR,
-						(errcode_for_file_access(),
-						 errmsg("could not determine size of temporary file \"%s\" from BufFile \"%s\": %m",
-								FilePathName(file->files[file->numFiles - 1]),
-								file->name)));
+			newOffset = FileIdxSz(file, newFile) + offset;
 			break;
 		default:
 			elog(ERROR, "invalid whence: %d", whence);
@@ -783,7 +793,7 @@ BufFileSeek(BufFile *file, int fileno, off_t offset, int whence)
 	{
 		if (--newFile < 0)
 			return EOF;
-		newOffset += MAX_PHYSICAL_FILESIZE;
+		newOffset += FileIdxSz(file, newFile);
 	}
 	if (newFile == file->curFile &&
 		newOffset >= file->curOffset &&
@@ -811,13 +821,13 @@ BufFileSeek(BufFile *file, int fileno, off_t offset, int whence)
 	if (newFile == file->numFiles && newOffset == 0)
 	{
 		newFile--;
-		newOffset = MAX_PHYSICAL_FILESIZE;
+		newOffset = FileIdxSz(file, newFile);
 	}
-	while (newOffset > MAX_PHYSICAL_FILESIZE)
+	while (newOffset > FileIdxSz(file, newFile))
 	{
 		if (++newFile >= file->numFiles)
 			return EOF;
-		newOffset -= MAX_PHYSICAL_FILESIZE;
+		newOffset -= FileIdxSz(file, newFile - 1);
 	}
 	if (newFile >= file->numFiles)
 		return EOF;
@@ -850,10 +860,25 @@ BufFileTell(BufFile *file, int *fileno, off_t *offset)
 int
 BufFileSeekBlock(BufFile *file, int64 blknum)
 {
-	return BufFileSeek(file,
-					   (int) (blknum / BUFFILE_SEG_SIZE),
-					   (off_t) (blknum % BUFFILE_SEG_SIZE) * BLCKSZ,
-					   SEEK_SET);
+	int fileno = 0;
+	int64 blknb = 0;
+	off_t offset;
+
+	while (fileno + 1 < file->numFiles && blknb < blknum)
+	{
+		blknb += FileIdxSz(file, fileno) / BLCKSZ;
+		fileno++;
+	}
+
+	if (blknb > blknum)
+	{
+		fileno--;
+		blknb -= FileIdxSz(file, fileno) / BLCKSZ;
+	}
+
+	offset = (blknum - blknb) * BLCKSZ;
+
+	return BufFileSeek(file, fileno, offset, SEEK_SET);
 }
 
 /*
@@ -865,19 +890,15 @@ BufFileSeekBlock(BufFile *file, int64 blknum)
 int64
 BufFileSize(BufFile *file)
 {
-	int64		lastFileSize;
+	int64		res = 0;
+	int		i;
 
-	/* Get the size of the last physical file. */
-	lastFileSize = FileSize(file->files[file->numFiles - 1]);
-	if (lastFileSize < 0)
-		ereport(ERROR,
-				(errcode_for_file_access(),
-				 errmsg("could not determine size of temporary file \"%s\" from BufFile \"%s\": %m",
-						FilePathName(file->files[file->numFiles - 1]),
-						file->name)));
+	for (i = 0; i < file->numFiles; i++)
+	{
+		res += FileIdxSz(file, i);
+	}
 
-	return ((file->numFiles - 1) * (int64) MAX_PHYSICAL_FILESIZE) +
-		lastFileSize;
+	return res;
 }
 
 /*
@@ -901,7 +922,7 @@ BufFileSize(BufFile *file)
 int64
 BufFileAppend(BufFile *target, BufFile *source)
 {
-	int64		startBlock = (int64) target->numFiles * BUFFILE_SEG_SIZE;
+	int64		startBlock = BufFileSize(target) / BLCKSZ;
 	int			newNumFiles = target->numFiles + source->numFiles;
 	int			i;
 
@@ -951,7 +972,7 @@ BufFileTruncateFileSet(BufFile *file, int fileno, off_t offset)
 						 errmsg("could not delete fileset \"%s\": %m",
 								segment_name)));
 			numFiles--;
-			newOffset = MAX_PHYSICAL_FILESIZE;
+			newOffset = FileIdxSz(file, numFiles - 1);
 
 			/*
 			 * This is required to indicate that we have deleted the given

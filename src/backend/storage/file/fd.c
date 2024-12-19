@@ -2432,6 +2432,8 @@ retry:
 off_t
 FileSize(File file)
 {
+	off_t res;
+
 	Assert(FileIsValid(file));
 
 	DO_DB(elog(LOG, "FileSize %d (%s)",
@@ -2443,7 +2445,20 @@ FileSize(File file)
 			return (off_t) -1;
 	}
 
-	return lseek(VfdCache[file].fd, 0, SEEK_END);
+	res = lseek(VfdCache[file].fd, 0, SEEK_END);
+	VfdCache[file].fileSize = res;
+	return res;
+}
+
+off_t
+FileCacheSize(File file)
+{
+	Assert(FileIsValid(file));
+
+	DO_DB(elog(LOG, "FileCacheSize %d (%s)",
+			   file, VfdCache[file].fileName));
+
+	return VfdCache[file].fileSize;
 }
 
 int

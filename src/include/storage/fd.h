@@ -114,6 +114,7 @@ extern int	FileZero(File file, off_t offset, off_t amount, uint32 wait_event_inf
 extern int	FileFallocate(File file, off_t offset, off_t amount, uint32 wait_event_info);
 
 extern off_t FileSize(File file);
+extern off_t FileCacheSize(File file);
 extern int	FileTruncate(File file, off_t offset, uint32 wait_event_info);
 extern void FileWriteback(File file, off_t offset, off_t nbytes, uint32 wait_event_info);
 extern char *FilePathName(File file);
