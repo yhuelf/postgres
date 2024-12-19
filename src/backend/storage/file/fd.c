@@ -1831,12 +1831,14 @@ OpenTemporaryFileInTablespace(Oid tblspcOid, bool rejectError)
 		 * someone else just did the same thing.  If it doesn't work then
 		 * we'll bomb out on the second create attempt, instead.
 		 */
-		(void) MakePGDirectory(tempdirpath);
+		if (MakePGDirectory(tempdirpath) == -1)
+			elog(WARNING, "could not create directory \"%s\": %m", tempdirpath);
 
 		file = PathNameOpenFile(tempfilepath,
 								O_RDWR | O_CREAT | O_TRUNC | PG_BINARY);
-		if (file <= 0 && rejectError)
-			elog(ERROR, "could not create temporary file \"%s\": %m",
+		if (file <= 0)
+			elog(rejectError ? ERROR : WARNING,
+				"could not create temporary file \"%s\": %m",
 				 tempfilepath);
 	}
 
