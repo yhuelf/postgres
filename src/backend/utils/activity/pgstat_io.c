@@ -146,6 +146,12 @@ pgstat_count_io_op_time(IOObject io_object, IOContext io_context, IOOp io_op,
 				else if (io_object == IOOBJECT_TEMP_RELATION)
 					INSTR_TIME_ADD(pgBufferUsage.local_blk_read_time, io_time);
 			}
+			else if (io_op == IOOP_WAITED)
+			{
+				pgstat_count_buffer_read_time(INSTR_TIME_GET_MICROSEC(io_time)); //XXX
+				if (io_object == IOOBJECT_RELATION)
+					INSTR_TIME_ADD(pgBufferUsage.shared_blk_wait_time, io_time);
+			}
 		}
 
 		INSTR_TIME_ADD(PendingIOStats.pending_times[io_object][io_context][io_op],

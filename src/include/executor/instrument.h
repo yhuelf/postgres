@@ -34,6 +34,7 @@ typedef struct BufferUsage
 	int64		temp_blks_read; /* # of temp blocks read */
 	int64		temp_blks_written;	/* # of temp blocks written */
 	instr_time	shared_blk_read_time;	/* time spent reading shared blocks */
+	instr_time	shared_blk_wait_time;	/* time spent waiting for shared blocks */
 	instr_time	shared_blk_write_time;	/* time spent writing shared blocks */
 	instr_time	local_blk_read_time;	/* time spent reading local blocks */
 	instr_time	local_blk_write_time;	/* time spent writing local blocks */

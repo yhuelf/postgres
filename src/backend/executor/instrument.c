@@ -235,6 +235,7 @@ BufferUsageAdd(BufferUsage *dst, const BufferUsage *add)
 	dst->local_blks_written += add->local_blks_written;
 	dst->temp_blks_read += add->temp_blks_read;
 	dst->temp_blks_written += add->temp_blks_written;
+	INSTR_TIME_ADD(dst->shared_blk_wait_time, add->shared_blk_wait_time);
 	INSTR_TIME_ADD(dst->shared_blk_read_time, add->shared_blk_read_time);
 	INSTR_TIME_ADD(dst->shared_blk_write_time, add->shared_blk_write_time);
 	INSTR_TIME_ADD(dst->local_blk_read_time, add->local_blk_read_time);
@@ -259,6 +260,8 @@ BufferUsageAccumDiff(BufferUsage *dst,
 	dst->local_blks_written += add->local_blks_written - sub->local_blks_written;
 	dst->temp_blks_read += add->temp_blks_read - sub->temp_blks_read;
 	dst->temp_blks_written += add->temp_blks_written - sub->temp_blks_written;
+	INSTR_TIME_ACCUM_DIFF(dst->shared_blk_wait_time,
+						  add->shared_blk_wait_time, sub->shared_blk_wait_time);
 	INSTR_TIME_ACCUM_DIFF(dst->shared_blk_read_time,
 						  add->shared_blk_read_time, sub->shared_blk_read_time);
 	INSTR_TIME_ACCUM_DIFF(dst->shared_blk_write_time,

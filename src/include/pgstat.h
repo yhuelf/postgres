@@ -311,6 +311,7 @@ typedef enum IOOp
 	/* IOs tracked in bytes */
 	IOOP_EXTEND,
 	IOOP_READ,
+	IOOP_WAITED,
 	IOOP_WRITE,
 } IOOp;
 

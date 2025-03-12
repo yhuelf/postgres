@@ -144,6 +144,8 @@
  */
 int			max_files_per_process = 1000;
 
+extern bool			track_io_timing;
+
 /*
  * Maximum number of file descriptors to open for operations that fd.c knows
  * about (VFDs, AllocateFile etc, or "external" FDs).  This is initialized
@@ -2084,6 +2086,9 @@ FilePrefetch(File file, off_t offset, off_t amount, uint32 wait_event_info)
 #if defined(USE_POSIX_FADVISE) && defined(POSIX_FADV_WILLNEED)
 	{
 		int			returnCode;
+		instr_time		io_start;
+		IOContext		io_context = IOCONTEXT_NORMAL;
+		IOObject		io_object = IOOBJECT_RELATION;
 
 		returnCode = FileAccess(file);
 		if (returnCode < 0)
@@ -2091,8 +2096,11 @@ FilePrefetch(File file, off_t offset, off_t amount, uint32 wait_event_info)
 
 retry:
 		pgstat_report_wait_start(wait_event_info);
+		io_start = pgstat_prepare_io_time(track_io_timing);
 		returnCode = posix_fadvise(VfdCache[file].fd, offset, amount,
 								   POSIX_FADV_WILLNEED);
+		pgstat_count_io_op_time(io_object, io_context, IOOP_WAITED, io_start,
+								1, amount);
 		pgstat_report_wait_end();
 
 		if (returnCode == EINTR)
