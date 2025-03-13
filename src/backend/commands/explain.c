@@ -3825,6 +3825,9 @@ show_buffer_usage(ExplainState *es, const BufferUsage *usage)
 			if (has_shared_timing)
 			{
 				appendStringInfoString(es->str, " shared");
+				if (!INSTR_TIME_IS_ZERO(usage->shared_blk_wait_time))
+					appendStringInfo(es->str, " wait=%0.3f",
+									 INSTR_TIME_GET_MILLISEC(usage->shared_blk_wait_time));
 				if (!INSTR_TIME_IS_ZERO(usage->shared_blk_read_time))
 					appendStringInfo(es->str, " read=%0.3f",
 									 INSTR_TIME_GET_MILLISEC(usage->shared_blk_read_time));
@@ -3885,6 +3888,9 @@ show_buffer_usage(ExplainState *es, const BufferUsage *usage)
 		{
 			ExplainPropertyFloat("Shared I/O Read Time", "ms",
 								 INSTR_TIME_GET_MILLISEC(usage->shared_blk_read_time),
+								 3, es);
+			ExplainPropertyFloat("Shared I/O Wait Time", "ms",
+								 INSTR_TIME_GET_MILLISEC(usage->shared_blk_wait_time),
 								 3, es);
 			ExplainPropertyFloat("Shared I/O Write Time", "ms",
 								 INSTR_TIME_GET_MILLISEC(usage->shared_blk_write_time),

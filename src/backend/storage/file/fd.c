@@ -167,6 +167,8 @@ int			recovery_init_sync_method = DATA_DIR_SYNC_METHOD_FSYNC;
 /* Which kinds of files should be opened with PG_O_DIRECT. */
 int			io_direct_flags;
 
+extern bool             track_io_timing;
+
 /* Debugging.... */
 
 #ifdef FDDEBUG
@@ -2079,6 +2081,9 @@ FilePrefetch(File file, off_t offset, off_t amount, uint32 wait_event_info)
 {
 #if defined(USE_POSIX_FADVISE) && defined(POSIX_FADV_WILLNEED)
 	int			returnCode;
+	instr_time              io_start;
+	IOContext               io_context = IOCONTEXT_NORMAL;
+	IOObject                io_object = IOOBJECT_RELATION;
 
 	Assert(FileIsValid(file));
 
@@ -2092,8 +2097,10 @@ FilePrefetch(File file, off_t offset, off_t amount, uint32 wait_event_info)
 
 retry:
 	pgstat_report_wait_start(wait_event_info);
+	io_start = pgstat_prepare_io_time(track_io_timing);
 	returnCode = posix_fadvise(VfdCache[file].fd, offset, amount,
 							   POSIX_FADV_WILLNEED);
+	pgstat_count_io_op_time(io_object, io_context, IOOP_WAITED, io_start, amount/BLCKSZ);
 	pgstat_report_wait_end();
 
 	if (returnCode == EINTR)
