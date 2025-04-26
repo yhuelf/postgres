@@ -2321,6 +2321,10 @@ exec_execute_message(const char *portal_name, long max_rows)
 			 * message.  The next protocol message will start a fresh timeout.
 			 */
 			disable_statement_timeout();
+
+			/* unnamed portal executed to completion, so close it */
+			if (portal_name[0] == '\0')
+				PortalDrop(portal, false);
 		}
 
 		/* Send appropriate CommandComplete to client */
